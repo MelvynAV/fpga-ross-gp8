@@ -1,2 +1,2 @@
-# fgpa-ross-video-challenge-groupe8
-Submission of the fgpa ross video challenge for group 8 - Melvyn AVOA and Hassan Hadji
+# fpga-ross-video-challenge-groupe8
+Submission of the fpga ross video challenge for group 8 - Melvyn AVOA and Hassan Hadji
