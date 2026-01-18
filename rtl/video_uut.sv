@@ -35,8 +35,8 @@ module video_uut (
     // ============================================================
     // Active area (assumed 1080p)
     // ============================================================
-    localparam int H_ACTIVE = 1920;
-    localparam int V_ACTIVE = 1080;
+    localparam integer H_ACTIVE = 1920;
+    localparam integer V_ACTIVE = 1080;
 
     // ---------- Colors ----------
     localparam [23:0] SKY_BG      = 24'h070A12;
@@ -62,36 +62,45 @@ module video_uut (
     localparam [23:0] LIVE_RED    = 24'hD3122A;
 
     // ---------- Field geometry ----------
-    localparam int MARGIN_X = 60;
-    localparam int MARGIN_Y = 70;
+    localparam integer MARGIN_X = 60;
+    localparam integer MARGIN_Y = 70;
 
-    localparam int PITCH_L = MARGIN_X;
-    localparam int PITCH_R = H_ACTIVE - MARGIN_X - 1;
-    localparam int PITCH_T = MARGIN_Y;
-    localparam int PITCH_B = V_ACTIVE - MARGIN_Y - 1;
+    localparam integer PITCH_L = MARGIN_X;
+    localparam integer PITCH_R = H_ACTIVE - MARGIN_X - 1;
+    localparam integer PITCH_T = MARGIN_Y;
+    localparam integer PITCH_B = V_ACTIVE - MARGIN_Y - 1;
 
-    localparam int PITCH_W = (PITCH_R - PITCH_L + 1);
-    localparam int PITCH_H = (PITCH_B - PITCH_T + 1);
+    localparam integer PITCH_W = (PITCH_R - PITCH_L + 1);
+    localparam integer PITCH_H = (PITCH_B - PITCH_T + 1);
 
     // Scoreboard placed under pitch (in bottom margin)
-    localparam int SB_TOP = PITCH_B + 12;
-    localparam int SB_H   = 64;
-    localparam int SB_BOT = SB_TOP + SB_H;
-    localparam int SB_L   = 40;
-    localparam int SB_R   = 620;
+    localparam integer SB_TOP = PITCH_B + 12;
+    localparam integer SB_H   = 64;
+    localparam integer SB_BOT = SB_TOP + SB_H;
+    localparam integer SB_L   = 40;
+    localparam integer SB_R   = 620;
 
     // Player limits derived from pitch limits (IMPORTANT)
-    localparam int PL_MARGIN = 20;
-    localparam int PL_L = PITCH_L + PL_MARGIN;
-    localparam int PL_R = PITCH_R - PL_MARGIN;
-    localparam int PL_T = PITCH_T + PL_MARGIN;
-    localparam int PL_B = PITCH_B - PL_MARGIN;
+    localparam integer PL_MARGIN = 20;
+    localparam integer PL_L = PITCH_L + PL_MARGIN;
+    localparam integer PL_R = PITCH_R - PL_MARGIN;
+    localparam integer PL_T = PITCH_T + PL_MARGIN;
+    localparam integer PL_B = PITCH_B - PL_MARGIN;
 
     // Goals
-    localparam int GOAL_MOUTH_H = 240;
-    localparam int GOAL_T = (V_ACTIVE/2) - (GOAL_MOUTH_H/2);
-    localparam int GOAL_B = (V_ACTIVE/2) + (GOAL_MOUTH_H/2);
-    localparam int GOAL_DEPTH = 22;
+    localparam integer GOAL_MOUTH_H = 240;
+    localparam integer GOAL_T = (V_ACTIVE/2) - (GOAL_MOUTH_H/2);
+    localparam integer GOAL_B = (V_ACTIVE/2) + (GOAL_MOUTH_H/2);
+    localparam integer GOAL_DEPTH = 22;
+
+    // ============================================================
+    // TOP RIGHT BANNER geometry (ROSS VIDEO)
+    // ============================================================
+    localparam integer BANNER_W  = 430;
+    localparam integer BANNER_H  = 48;
+    localparam integer BANNER_T  = 12;
+    localparam integer BANNER_RM = 20;
+    localparam integer BANNER_L0 = H_ACTIVE - BANNER_W - BANNER_RM;
 
     // ============================================================
     // TIMING (DE-based)
@@ -174,6 +183,17 @@ module video_uut (
         end
     endfunction
 
+    // Saturating +/- on RGB to avoid wrap-around artifacts (green glitch lines)
+    function automatic [23:0] rgb_add_uni(input [23:0] c, input integer d);
+        integer r,g,b;
+        begin
+            r = integer'(c[23:16]) + d;
+            g = integer'(c[15:8])  + d;
+            b = integer'(c[7:0])   + d;
+            rgb_add_uni = {clamp8(r), clamp8(g), clamp8(b)};
+        end
+    endfunction
+
     // ============================================================
     // RNG (global)
     // ============================================================
@@ -197,10 +217,10 @@ module video_uut (
     reg signed [10:0] ball_y;
     reg signed [11:0] ball_vx;
     reg signed [11:0] ball_vy;
-    localparam int BALL_R = 10;
+    localparam integer BALL_R = 10;
 
     // Players
-    localparam int NPLAY = 12;
+    localparam integer NPLAY = 12;
 
     reg signed [11:0] pl_x [0:NPLAY-1];
     reg signed [10:0] pl_y [0:NPLAY-1];
@@ -232,10 +252,14 @@ module video_uut (
 
     reg init_done = 1'b0;
 
+    // loop vars (Vivado-friendly: avoid "for (int ...)" in some modes)
+    integer k_loop;
+    integer p_loop;
+
     // ============================================================
     // Formation functions (combinational)
     // ============================================================
-    function automatic signed [11:0] home_x_fn(input int idx);
+    function automatic signed [11:0] home_x_fn(input integer idx);
         begin
             case (idx)
                 0:  home_x_fn = PITCH_L+190;
@@ -255,7 +279,7 @@ module video_uut (
         end
     endfunction
 
-    function automatic signed [10:0] home_y_fn(input int idx);
+    function automatic signed [10:0] home_y_fn(input integer idx);
         begin
             case (idx)
                 0:  home_y_fn = V_ACTIVE/2;
@@ -318,6 +342,28 @@ module video_uut (
     endtask
 
     // ============================================================
+    // (NEW) Players-only reset (used on GOAL so ball can be forced center)
+    // ============================================================
+    task do_players_home_reset;
+        integer k;
+        begin
+            for (k = 0; k < NPLAY; k = k + 1) begin
+                pl_x[k]  <= home_x_fn(k);
+                pl_y[k]  <= home_y_fn(k);
+                tgt_x[k] <= home_x_fn(k);
+                tgt_y[k] <= home_y_fn(k);
+
+                pos_x[k] <= {home_x_fn(k),4'b0000};
+                pos_y[k] <= {home_y_fn(k),4'b0000};
+                vel_x[k] <= 16'sd0;
+                vel_y[k] <= 16'sd0;
+
+                pl_anim[k] <= 0;
+            end
+        end
+    endtask
+
+    // ============================================================
     // Gameplay / physics update (runs on frame_tick)
     // ============================================================
     integer dx, dy, d2;
@@ -327,11 +373,11 @@ module video_uut (
     reg signed [15:0] vx_fp, vy_fp;
 
     // Tuning
-    localparam int KICK_RADIUS2 = 1600;     // (40px)^2
-    localparam int PLAYER_MAXV  = (4 <<< 4); // ~4px/frame (players slower)
-    localparam int PLAYER_ACC   = (1 <<< 4); // ~1px/frame^2
-    localparam int BALL_MAXV    = 20;        // clamp
-    localparam int BALL_FRICTION_SHIFT = 5;  // decay
+    localparam integer KICK_RADIUS2 = 1600;      // (40px)^2
+    localparam integer PLAYER_MAXV  = (4 <<< 4); // ~4px/frame (players slower)
+    localparam integer PLAYER_ACC   = (1 <<< 4); // ~1px/frame^2
+    localparam integer BALL_MAXV    = 20;        // clamp
+    localparam integer BALL_FRICTION_SHIFT = 5;  // decay
 
     function automatic signed [15:0] clamp_vel(input signed [15:0] v);
         begin
@@ -340,6 +386,13 @@ module video_uut (
             else clamp_vel = v;
         end
     endfunction
+
+    // temporaries for ball integration/collisions (prevents 1-frame lag bugs)
+    integer nbx, nby;
+    integer nvx, nvy;
+
+    // moved out of inner block for Vivado/Vlog compatibility (declaration-only)
+    integer goal_hit;
 
     always @(posedge clk_i) begin
         if (rst_i) begin
@@ -367,19 +420,19 @@ module video_uut (
             ball_vx <= 0;
             ball_vy <= 0;
 
-            for (int k = 0; k < NPLAY; k++) begin
-                pl_x[k]    <= home_x_fn(k);
-                pl_y[k]    <= home_y_fn(k);
-                tgt_x[k]   <= home_x_fn(k);
-                tgt_y[k]   <= home_y_fn(k);
+            for (k_loop = 0; k_loop < NPLAY; k_loop = k_loop + 1) begin
+                pl_x[k_loop]    <= home_x_fn(k_loop);
+                pl_y[k_loop]    <= home_y_fn(k_loop);
+                tgt_x[k_loop]   <= home_x_fn(k_loop);
+                tgt_y[k_loop]   <= home_y_fn(k_loop);
 
-                pos_x[k]   <= {home_x_fn(k),4'b0000};
-                pos_y[k]   <= {home_y_fn(k),4'b0000};
-                vel_x[k]   <= 16'sd0;
-                vel_y[k]   <= 16'sd0;
+                pos_x[k_loop]   <= {home_x_fn(k_loop),4'b0000};
+                pos_y[k_loop]   <= {home_y_fn(k_loop),4'b0000};
+                vel_x[k_loop]   <= 16'sd0;
+                vel_y[k_loop]   <= 16'sd0;
 
-                pl_anim[k] <= 0;
-                prng[k]    <= 16'hBEEF ^ (k*16'h1234) ^ 16'h0001;
+                pl_anim[k_loop] <= 0;
+                prng[k_loop]    <= 16'hBEEF ^ (k_loop*16'h1234) ^ 16'h0001;
             end
 
         end else if (cen_i) begin
@@ -397,9 +450,9 @@ module video_uut (
                     goal_anim <= 0;
                     flash <= 0;
                     do_kickoff_reset();
-                    for (int k = 0; k < NPLAY; k++) begin
-                        prng[k] <= 16'hBEEF ^ (k*16'h1234) ^ 16'h0001;
-                        pl_anim[k] <= 0;
+                    for (k_loop = 0; k_loop < NPLAY; k_loop = k_loop + 1) begin
+                        prng[k_loop] <= 16'hBEEF ^ (k_loop*16'h1234) ^ 16'h0001;
+                        pl_anim[k_loop] <= 0;
                     end
                 end
 
@@ -443,16 +496,16 @@ module video_uut (
                 end
 
                 // ---------------- update prng + roaming targets ----------------
-                for (int k = 0; k < NPLAY; k++) begin
-                    prng[k] <= {prng[k][14:0], prng[k][15] ^ prng[k][13] ^ prng[k][12] ^ prng[k][10]} ^ (16'h9E37 + k);
-                    pl_anim[k] <= pl_anim[k] + 1;
+                for (k_loop = 0; k_loop < NPLAY; k_loop = k_loop + 1) begin
+                    prng[k_loop] <= {prng[k_loop][14:0], prng[k_loop][15] ^ prng[k_loop][13] ^ prng[k_loop][12] ^ prng[k_loop][10]} ^ (16'h9E37 + k_loop);
+                    pl_anim[k_loop] <= pl_anim[k_loop] + 1;
 
-                    if (((frame_cnt[3:0] ^ k[3:0]) == 4'h0) && (kickoff_pause == 0) && (goal_anim == 0)) begin
-                        tx = home_x_fn(k) + (((prng[k][7:0])  - 8'd128) >>> 1);
-                        ty = home_y_fn(k) + (((prng[k][15:8]) - 8'd128) >>> 2);
+                    if (((frame_cnt[3:0] ^ k_loop[3:0]) == 4'h0) && (kickoff_pause == 0) && (goal_anim == 0)) begin
+                        tx = home_x_fn(k_loop) + (((prng[k_loop][7:0])  - 8'd128) >>> 1);
+                        ty = home_y_fn(k_loop) + (((prng[k_loop][15:8]) - 8'd128) >>> 2);
 
                         // bias slightly toward ball side
-                        if (k < 6) begin
+                        if (k_loop < 6) begin
                             if (ball_x > H_ACTIVE/2) tx = tx + 40;
                         end else begin
                             if (ball_x < H_ACTIVE/2) tx = tx - 40;
@@ -464,8 +517,8 @@ module video_uut (
                         if (ty < PL_T) ty = PL_T;
                         if (ty > PL_B) ty = PL_B;
 
-                        tgt_x[k] <= tx[11:0];
-                        tgt_y[k] <= ty[10:0];
+                        tgt_x[k_loop] <= tx[11:0];
+                        tgt_y[k_loop] <= ty[10:0];
                     end
                 end
 
@@ -474,34 +527,34 @@ module video_uut (
                 best0_d2 = 32'h7fffffff;
                 best1_d2 = 32'h7fffffff;
 
-                for (int k = 0; k < NPLAY; k++) begin
-                    dx = (pl_x[k] - ball_x);
-                    dy = (pl_y[k] - ball_y);
+                for (k_loop = 0; k_loop < NPLAY; k_loop = k_loop + 1) begin
+                    dx = (pl_x[k_loop] - ball_x);
+                    dy = (pl_y[k_loop] - ball_y);
                     d2 = dx*dx + dy*dy;
 
                     if (d2 < best0_d2) begin
                         best1_d2 = best0_d2; best1_i = best0_i;
-                        best0_d2 = d2;       best0_i = k;
+                        best0_d2 = d2;       best0_i = k_loop;
                     end else if (d2 < best1_d2) begin
-                        best1_d2 = d2;       best1_i = k;
+                        best1_d2 = d2;       best1_i = k_loop;
                     end
                 end
 
                 // ---------------- PLAYER PHYSICS ----------------
-                for (int k = 0; k < NPLAY; k++) begin
-                    px_fp = pos_x[k];
-                    py_fp = pos_y[k];
-                    vx_fp = vel_x[k];
-                    vy_fp = vel_y[k];
+                for (k_loop = 0; k_loop < NPLAY; k_loop = k_loop + 1) begin
+                    px_fp = pos_x[k_loop];
+                    py_fp = pos_y[k_loop];
+                    vx_fp = vel_x[k_loop];
+                    vy_fp = vel_y[k_loop];
 
                     if ((kickoff_pause == 0) && (goal_anim == 0)) begin
                         // two closest chase; others roam
-                        if (k == best0_i || k == best1_i) begin
+                        if (k_loop == best0_i || k_loop == best1_i) begin
                             tx = ball_x;
                             ty = ball_y;
                         end else begin
-                            tx = tgt_x[k];
-                            ty = tgt_y[k];
+                            tx = tgt_x[k_loop];
+                            ty = tgt_y[k_loop];
                         end
 
                         dx = tx - (px_fp >>> 4);
@@ -532,81 +585,120 @@ module video_uut (
                     if ((py_fp >>> 4) < PL_T) begin py_fp = (PL_T <<< 4); vy_fp = 0; end
                     if ((py_fp >>> 4) > PL_B) begin py_fp = (PL_B <<< 4); vy_fp = 0; end
 
-                    pos_x[k] <= px_fp;
-                    pos_y[k] <= py_fp;
-                    vel_x[k] <= vx_fp;
-                    vel_y[k] <= vy_fp;
+                    pos_x[k_loop] <= px_fp;
+                    pos_y[k_loop] <= py_fp;
+                    vel_x[k_loop] <= vx_fp;
+                    vel_y[k_loop] <= vy_fp;
 
-                    pl_x[k] <= (px_fp >>> 4);
-                    pl_y[k] <= (py_fp >>> 4);
+                    pl_x[k_loop] <= (px_fp >>> 4);
+                    pl_y[k_loop] <= (py_fp >>> 4);
                 end
 
                 // ---------------- BALL PHYSICS + SOCCER ----------------
                 if ((kickoff_pause == 0) && (goal_anim == 0)) begin
+                    // start from current
+                    nbx = ball_x;
+                    nby = ball_y;
+                    nvx = ball_vx;
+                    nvy = ball_vy;
+
                     // move
-                    ball_x <= ball_x + ball_vx;
-                    ball_y <= ball_y + ball_vy;
+                    nbx = nbx + nvx;
+                    nby = nby + nvy;
 
                     // friction
-                    ball_vx <= ball_vx - (ball_vx >>> BALL_FRICTION_SHIFT);
-                    ball_vy <= ball_vy - (ball_vy >>> BALL_FRICTION_SHIFT);
+                    nvx = nvx - (nvx >>> BALL_FRICTION_SHIFT);
+                    nvy = nvy - (nvy >>> BALL_FRICTION_SHIFT);
 
                     // clamp velocity
-                    if (ball_vx >  BALL_MAXV) ball_vx <=  BALL_MAXV;
-                    if (ball_vx < -BALL_MAXV) ball_vx <= -BALL_MAXV;
-                    if (ball_vy >  BALL_MAXV) ball_vy <=  BALL_MAXV;
-                    if (ball_vy < -BALL_MAXV) ball_vy <= -BALL_MAXV;
+                    if (nvx >  BALL_MAXV) nvx =  BALL_MAXV;
+                    if (nvx < -BALL_MAXV) nvx = -BALL_MAXV;
+                    if (nvy >  BALL_MAXV) nvy =  BALL_MAXV;
+                    if (nvy < -BALL_MAXV) nvy = -BALL_MAXV;
 
                     // bounce top/bottom
-                    if (ball_y < (PITCH_T + BALL_R)) begin
-                        ball_y  <= PITCH_T + BALL_R;
-                        ball_vy <= -ball_vy;
+                    if (nby < (PITCH_T + BALL_R)) begin
+                        nby = PITCH_T + BALL_R;
+                        nvy = -nvy;
                     end
-                    if (ball_y > (PITCH_B - BALL_R)) begin
-                        ball_y  <= PITCH_B - BALL_R;
-                        ball_vy <= -ball_vy;
+                    if (nby > (PITCH_B - BALL_R)) begin
+                        nby = PITCH_B - BALL_R;
+                        nvy = -nvy;
                     end
 
+                    // ----------------------------------------------------------------
+                    // On GOAL, force the ball to center immediately
+                    // ----------------------------------------------------------------
+                    goal_hit = 0;
+
                     // left side (goal or wall)
-                    if (ball_x <= (PITCH_L + BALL_R)) begin
-                        if (ball_y >= GOAL_T && ball_y <= GOAL_B) begin
+                    if (!goal_hit && (nbx <= (PITCH_L + BALL_R))) begin
+                        if (nby >= GOAL_T && nby <= GOAL_B) begin
+                            goal_hit = 1;
+
                             if (score_b != 9) score_b <= score_b + 1;
                             goal_side <= 2;
                             goal_anim <= 10'd140;
                             flash <= 8'd220;
-                            do_kickoff_reset();
+
+                            // players reset, and ball goes to middle
+                            do_players_home_reset();
+                            kickoff_pause <= 8'd30;
+                            kick_cd <= 6'd0;
+
+                            nbx = H_ACTIVE/2;
+                            nby = V_ACTIVE/2;
+                            nvx = 0;
+                            nvy = 0;
                         end else begin
-                            ball_x  <= PITCH_L + BALL_R;
-                            ball_vx <= -ball_vx;
+                            nbx = PITCH_L + BALL_R;
+                            nvx = -nvx;
                         end
                     end
 
                     // right side (goal or wall)
-                    if (ball_x >= (PITCH_R - BALL_R)) begin
-                        if (ball_y >= GOAL_T && ball_y <= GOAL_B) begin
+                    if (!goal_hit && (nbx >= (PITCH_R - BALL_R))) begin
+                        if (nby >= GOAL_T && nby <= GOAL_B) begin
+                            goal_hit = 1;
+
                             if (score_a != 9) score_a <= score_a + 1;
                             goal_side <= 1;
                             goal_anim <= 10'd140;
                             flash <= 8'd220;
-                            do_kickoff_reset();
+
+                            // players reset, and ball goes to middle
+                            do_players_home_reset();
+                            kickoff_pause <= 8'd30;
+                            kick_cd <= 6'd0;
+
+                            nbx = H_ACTIVE/2;
+                            nby = V_ACTIVE/2;
+                            nvx = 0;
+                            nvy = 0;
                         end else begin
-                            ball_x  <= PITCH_R - BALL_R;
-                            ball_vx <= -ball_vx;
+                            nbx = PITCH_R - BALL_R;
+                            nvx = -nvx;
                         end
                     end
 
                     // kick when closest reaches the ball (team-based) + cooldown
-                    if ((best0_d2 < KICK_RADIUS2) && (kick_cd == 0)) begin
+                    if (!goal_hit && (best0_d2 < KICK_RADIUS2) && (kick_cd == 0)) begin
                         if (best0_i < 6) begin
                             // Team A attacks RIGHT
-                            ball_vx <= 12'sd18 + $signed({8'd0, lfsr[3:0]});
+                            nvx = 18 + $signed({8'd0, lfsr[3:0]});
                         end else begin
                             // Team B attacks LEFT
-                            ball_vx <= -(12'sd18 + $signed({8'd0, lfsr[3:0]}));
+                            nvx = -(18 + $signed({8'd0, lfsr[3:0]}));
                         end
-                        ball_vy <= $signed({{8{lfsr[7]}}, lfsr[7:4]}) - 12'sd8;
+                        nvy = ($signed({{8{lfsr[7]}}, lfsr[7:4]}) - 8);
                         kick_cd <= 6'd20;
                     end
+
+                    // commit ball state
+                    ball_x  <= nbx[11:0];
+                    ball_y  <= nby[10:0];
+                    ball_vx <= nvx[11:0];
+                    ball_vy <= nvy[11:0];
                 end
             end
         end
@@ -633,7 +725,8 @@ module video_uut (
         end
     endfunction
 
-    function digit_pixel(
+    // explicit 1-bit return type (Vivado-friendly)
+    function automatic bit digit_pixel(
         input [11:0] x,
         input [10:0] y,
         input [11:0] x0,
@@ -672,6 +765,8 @@ module video_uut (
                 "G": font5x7 = 35'b01110_10001_10000_10111_10001_10001_01110;
                 "O": font5x7 = 35'b01110_10001_10001_10001_10001_10001_01110;
                 "A": font5x7 = 35'b01110_10001_10001_11111_10001_10001_10001;
+                "R": font5x7 = 35'b11110_10001_10001_11110_10100_10010_10001;
+                "D": font5x7 = 35'b11110_10001_10001_10001_10001_10001_11110;
                 "!": font5x7 = 35'b00100_00100_00100_00100_00100_00000_00100;
                 " ": font5x7 = 35'b00000_00000_00000_00000_00000_00000_00000;
                 default: font5x7 = 35'b00000_00000_00000_00000_00000_00000_00000;
@@ -679,7 +774,8 @@ module video_uut (
         end
     endfunction
 
-    function text_pixel5x7(
+    // explicit 1-bit return type (Vivado-friendly)
+    function automatic bit text_pixel5x7(
         input [11:0] x,
         input [10:0] y,
         input [11:0] x0,
@@ -700,7 +796,8 @@ module video_uut (
         end
     endfunction
 
-    function stringpix(
+    // explicit 1-bit return type (Vivado-friendly)
+    function automatic bit stringpix(
         input [11:0] x,  input [10:0] y,
         input [11:0] x0, input [10:0] y0,
         input [7:0] c0,  input [7:0] c1,  input [7:0] c2,  input [7:0] c3,
@@ -743,6 +840,10 @@ module video_uut (
 
     integer mm, ss; // for scoreboard MM:SS
 
+    // Banner vars
+    integer banner_l;
+    integer wobble;
+
     function [23:0] apply_flash(input [23:0] c, input [7:0] f);
         integer r,g,b;
         begin
@@ -754,7 +855,17 @@ module video_uut (
     endfunction
 
     always @(posedge clk_i) begin
-        if (cen_i) begin
+        if (rst_i) begin
+            vid_rgb_d1   <= 24'h000000;
+            dvh_sync_d1  <= 3'b000;
+            in_pitch     <= 1'b0;
+            grass        <= 24'h000000;
+        end else if (cen_i) begin
+            // defaults each pixel (avoid stale state usage)
+            in_pitch = 1'b0;
+            grass   = GRASS_A;
+            col     = SKY_BG;
+
             vid_rgb_d1 <= SKY_BG;
 
             if (vid_sel_i && de_i) begin
@@ -772,10 +883,11 @@ module video_uut (
                 // pitch base
                 if (in_pitch) begin
                     grass = (((h_cnt >> 6) & 1) == 0) ? GRASS_A : GRASS_B;
-                    if (((h_cnt >> 8) & 1) == 1) grass = grass + 24'h010101;
 
-                    if (v_cnt[6:0] < 7'd50) col = grass + 24'h030303;
-                    else if (v_cnt[6:0] > 7'd120) col = grass - 24'h010101;
+                    if (((h_cnt >> 8) & 1) == 1) grass = rgb_add_uni(grass, 1);
+
+                    if (v_cnt[6:0] < 7'd50) col = rgb_add_uni(grass, 3);
+                    else if (v_cnt[6:0] > 7'd120) col = rgb_add_uni(grass, -1);
                     else col = grass;
 
                     vid_rgb_d1 <= apply_flash(col, flash);
@@ -787,8 +899,9 @@ module video_uut (
                         v_cnt == PITCH_B-2 || v_cnt == PITCH_B-3 || v_cnt == PITCH_B-4)
                         vid_rgb_d1 <= apply_flash(LINE_WHITE, flash);
 
-                    // halfway
-                    if (v_cnt == (PITCH_T + PITCH_H/2) || v_cnt == (PITCH_T + PITCH_H/2 + 1))
+                    // MIDFIELD LINE: VERTICAL
+                    if ((h_cnt == (PITCH_L + (PITCH_W/2)) || h_cnt == (PITCH_L + (PITCH_W/2) + 1)) &&
+                        v_cnt >= PITCH_T && v_cnt <= PITCH_B)
                         vid_rgb_d1 <= apply_flash(LINE_WHITE, flash);
 
                     // center circle
@@ -817,9 +930,9 @@ module video_uut (
                 end
 
                 // players
-                for (int p = 0; p < NPLAY; p++) begin
-                    px = pl_x[p];
-                    py = pl_y[p];
+                for (p_loop = 0; p_loop < NPLAY; p_loop = p_loop + 1) begin
+                    px = pl_x[p_loop];
+                    py = pl_y[p_loop];
                     pw = 18 + ((py - PITCH_T) >> 5);
                     ph = 46 + ((py - PITCH_T) >> 4);
                     head_r = (pw >> 2);
@@ -833,9 +946,11 @@ module video_uut (
                     // body
                     if (integer'(h_cnt) >= (px - pw/2) && integer'(h_cnt) < (px + pw/2) &&
                         integer'(v_cnt) >= (py - ph) && integer'(v_cnt) < py) begin
-                        col = (p < 6) ? TEAM_A : TEAM_B;
-                        if (((h_cnt + (pl_anim[p]>>2)) & 8) == 0) col = col + 24'h030303;
-                        if (v_cnt > (py - (ph>>2))) col = col - 24'h020202;
+                        col = (p_loop < 6) ? TEAM_A : TEAM_B;
+
+                        if (((h_cnt + (pl_anim[p_loop]>>2)) & 8) == 0) col = rgb_add_uni(col, 3);
+                        if (v_cnt > (py - (ph>>2)))                   col = rgb_add_uni(col, -2);
+
                         vid_rgb_d1 <= apply_flash(col, flash);
 
                         if (h_cnt == (px - pw/2) || h_cnt == (px + pw/2 - 1) ||
@@ -848,7 +963,7 @@ module video_uut (
                     ddy = integer'(v_cnt) - (py - ph - head_r);
                     if ((ddx*ddx + ddy*ddy) <= (head_r*head_r)) begin
                         col = SKIN;
-                        if (((h_cnt + v_cnt) & 4) == 0) col = col - 24'h010101;
+                        if (((h_cnt + v_cnt) & 4) == 0) col = rgb_add_uni(col, -1);
                         vid_rgb_d1 <= apply_flash(col, flash);
                     end
                 end
@@ -867,10 +982,51 @@ module video_uut (
                 dist2 = ddx*ddx + ddy*ddy;
                 if (dist2 <= (BALL_R*BALL_R)) begin
                     col = ((ddx + ddy) > 0) ? BALL_DARK : BALL_WHITE;
-                    if (((h_cnt ^ v_cnt) & 3) == 0) col = col - 24'h020202;
+                    if (((h_cnt ^ v_cnt) & 3) == 0) col = rgb_add_uni(col, -2);
+
                     vid_rgb_d1 <= apply_flash(col, flash);
                     if (dist2 >= (BALL_R*BALL_R - 2*BALL_R))
                         vid_rgb_d1 <= apply_flash(OUTLINE, flash);
+                end
+
+                // ============================================================
+                // TOP RIGHT BANNER: ROSS VIDEO + 3 effects
+                // ============================================================
+                wobble = (integer'({1'b0, frame_cnt[5:3]}) - 4);
+                if (wobble < -3) wobble = -3;
+                if (wobble >  3) wobble =  3;
+                banner_l = BANNER_L0 + wobble;
+
+                if (score_a > score_b)      col = TEAM_A;
+                else if (score_b > score_a) col = TEAM_B;
+                else                        col = SCORE_ACC;
+
+                if (v_cnt >= BANNER_T && v_cnt < (BANNER_T + BANNER_H) &&
+                    h_cnt >= banner_l && h_cnt < (banner_l + BANNER_W)) begin
+
+                    // background
+                    vid_rgb_d1 <= SCORE_BG;
+
+                    // accent line (top)
+                    if (v_cnt < (BANNER_T + 4))
+                        vid_rgb_d1 <= col;
+
+                    // main text
+                    if (stringpix(h_cnt, v_cnt, banner_l + 18, BANNER_T + 14,
+                                  "R","O","S","S"," ","V","I","D","E","O"," "," "))
+                        vid_rgb_d1 <= 24'hFFFFFF;
+
+                    // blinking LIVE badge
+                    if (frame_cnt[4]) begin
+                        if (h_cnt >= (banner_l + BANNER_W - 70) && h_cnt < (banner_l + BANNER_W - 18) &&
+                            v_cnt >= (BANNER_T + 12)           && v_cnt < (BANNER_T + 34)) begin
+                            vid_rgb_d1 <= LIVE_RED;
+
+                            if (stringpix(h_cnt, v_cnt, banner_l + BANNER_W - 66, BANNER_T + 16,
+                                          "L","I","V","E"," "," "," "," "," "," "," "," "))
+                                vid_rgb_d1 <= 24'hFFFFFF;
+                        end
+                    end
                 end
 
                 // TOP LEFT ESPN LIVE
